@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ModelSelect } from "@/components/ModelSelect";
 import { ChatMessage } from "@/components/ChatMessage";
 import { ChatInput } from "@/components/ChatInput";
@@ -6,20 +6,34 @@ import { Message, ModelOption } from "@/types/chat";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
-
-const MODELS: ModelOption[] = [
-  { id: "llama2", name: "Llama 2" },
-  { id: "codellama", name: "Code Llama" },
-  { id: "mistral", name: "Mistral" },
-  { id: "neural-chat", name: "Neural Chat" },
-  { id: "starling-lm", name: "Starling" },
-];
+import { fetchOllamaModels, streamChat } from "@/services/ollama";
 
 const Index = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState(MODELS[0].id);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
   const { toast } = useToast();
+
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const availableModels = await fetchOllamaModels();
+        setModels(availableModels);
+        if (availableModels.length > 0) {
+          setSelectedModel(availableModels[0].id);
+        }
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to fetch available models. Is Ollama running?",
+          variant: "destructive",
+        });
+      }
+    };
+
+    loadModels();
+  }, [toast]);
 
   const handleSend = async (content: string) => {
     const userMessage: Message = {
@@ -33,17 +47,26 @@ const Index = () => {
     setIsLoading(true);
 
     try {
-      // Simulate API response for now - replace with actual API call when Supabase is integrated
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
+      let assistantContent = "";
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: `This is a simulated response from the ${selectedModel} model. To enable actual Ollama integration, please connect your project to Supabase first.`,
+        content: "",
         timestamp: Date.now(),
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
+
+      await streamChat(selectedModel, content, (chunk) => {
+        assistantContent += chunk.message.content;
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessage.id
+              ? { ...msg, content: assistantContent }
+              : msg
+          )
+        );
+      });
     } catch (error) {
       toast({
         title: "Error",
@@ -61,7 +84,7 @@ const Index = () => {
         <div className="mx-auto flex max-w-4xl items-center justify-between">
           <h1 className="text-xl font-bold">Ollama Chat</h1>
           <ModelSelect
-            models={MODELS}
+            models={models}
             selectedModel={selectedModel}
             onModelChange={setSelectedModel}
           />
